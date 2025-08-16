@@ -12,3 +12,4 @@ lxml
 html5lib
 Pillow
 pyarrow
+trafilatura
