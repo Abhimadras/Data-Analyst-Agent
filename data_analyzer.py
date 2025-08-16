@@ -110,7 +110,7 @@ class DataAnalyzer:
         try:
             task_lower = task.lower()
             
-            # Check for Wikipedia or URL scraping
+            # Check for Wikipedia or URL scraping first
             urls = re.findall(r'https?://[^\s]+', task)
             if urls:
                 for url in urls:
@@ -121,6 +121,15 @@ class DataAnalyzer:
                     else:
                         scraped_text = get_website_text_content(url)
                         data_dict['scraped_text'] = scraped_text
+            
+            # Check if we have any data to work with
+            has_data = self._has_usable_data(data_dict)
+            
+            if not has_data and not urls:
+                # If no data and no URLs, return a helpful message about what's needed
+                return {
+                    "error": "No data provided. Please upload data files (CSV, JSON, Parquet) or include URLs in your questions for web scraping."
+                }
             
             # Determine task type and process accordingly
             if 'plot' in task_lower or 'chart' in task_lower or 'graph' in task_lower or 'scatterplot' in task_lower:
@@ -146,14 +155,64 @@ class DataAnalyzer:
     def _scrape_wikipedia_table(self, url: str) -> pd.DataFrame:
         """Scrape tables from Wikipedia URL"""
         try:
-            tables = pd.read_html(url)
-            if tables:
+            # Add timeout and headers for better reliability
+            import requests
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            # First try pandas read_html
+            tables = pd.read_html(url, header=0)
+            if tables and len(tables) > 0:
                 # Return the largest table (most likely to be the main data)
                 largest_table = max(tables, key=len)
+                # Clean up column names
+                if hasattr(largest_table, 'columns'):
+                    largest_table.columns = [str(col).strip() for col in largest_table.columns]
+                logging.info(f"Successfully scraped Wikipedia table with {len(largest_table)} rows and {len(largest_table.columns)} columns")
                 return largest_table
             return None
         except Exception as e:
             logging.error(f"Wikipedia scraping error: {str(e)}")
+            # Try alternative approach with requests + BeautifulSoup
+            try:
+                import requests
+                from bs4 import BeautifulSoup
+                
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                tables = soup.find_all('table', {'class': 'wikitable'})
+                
+                if tables:
+                    # Convert first table to DataFrame
+                    table = tables[0]
+                    rows = []
+                    headers = []
+                    
+                    # Extract headers
+                    header_row = table.find('tr')
+                    if header_row:
+                        headers = [th.get_text().strip() for th in header_row.find_all(['th', 'td'])]
+                    
+                    # Extract data rows
+                    for row in table.find_all('tr')[1:]:
+                        cells = [td.get_text().strip() for td in row.find_all(['td', 'th'])]
+                        if cells:
+                            rows.append(cells)
+                    
+                    if rows and headers:
+                        df = pd.DataFrame(rows, columns=headers)
+                        logging.info(f"Successfully scraped Wikipedia table using BeautifulSoup with {len(df)} rows")
+                        return df
+                
+            except Exception as e2:
+                logging.error(f"Alternative scraping method also failed: {str(e2)}")
+            
             return None
     
     def _create_visualization(self, task: str, data_dict: Dict[str, Any]) -> str:
@@ -439,19 +498,59 @@ class DataAnalyzer:
         """Handle general analysis requests"""
         try:
             df = self._get_main_dataframe(data_dict)
-            if df is None:
-                return {"error": "No suitable dataset found"}
+            if df is not None:
+                # Return basic info about the dataset
+                return {
+                    "shape": df.shape,
+                    "columns": df.columns.tolist(),
+                    "data_types": df.dtypes.astype(str).to_dict(),
+                    "sample_data": df.head().to_dict('records')
+                }
             
-            # Return basic info about the dataset
-            return {
-                "shape": df.shape,
-                "columns": df.columns.tolist(),
-                "data_types": df.dtypes.to_dict(),
-                "sample_data": df.head().to_dict('records')
-            }
+            # If no DataFrame but we have scraped text, return text summary
+            if 'scraped_text' in data_dict and data_dict['scraped_text']:
+                text = data_dict['scraped_text']
+                return {
+                    "type": "text_content",
+                    "length": len(text),
+                    "preview": text[:500] + "..." if len(text) > 500 else text,
+                    "word_count": len(text.split())
+                }
+            
+            # If we have other data types, describe them
+            if data_dict:
+                summary = {}
+                for key, value in data_dict.items():
+                    if isinstance(value, dict):
+                        summary[key] = {"type": "dictionary", "keys": len(value)}
+                    elif isinstance(value, list):
+                        summary[key] = {"type": "list", "length": len(value)}
+                    elif hasattr(value, '__class__'):
+                        summary[key] = {"type": str(type(value).__name__)}
+                return {"data_summary": summary}
+            
+            return {"message": "Please provide data files or URLs to analyze"}
             
         except Exception as e:
             return {"error": f"General analysis failed: {str(e)}"}
+    
+    def _has_usable_data(self, data_dict: Dict[str, Any]) -> bool:
+        """Check if we have any usable data for analysis"""
+        # Check for dataframes (CSV, Parquet, scraped data)
+        dataframes = [v for v in data_dict.values() if isinstance(v, pd.DataFrame)]
+        if dataframes:
+            return True
+        
+        # Check for JSON data
+        json_data = [v for v in data_dict.values() if isinstance(v, (dict, list))]
+        if json_data:
+            return True
+            
+        # Check for scraped text content
+        if 'scraped_text' in data_dict and data_dict['scraped_text']:
+            return True
+            
+        return False
     
     def _get_main_dataframe(self, data_dict: Dict[str, Any]) -> pd.DataFrame:
         """Get the main dataframe from the data dictionary"""
@@ -463,5 +562,24 @@ class DataAnalyzer:
         if dataframes:
             # Return the largest dataframe
             return max(dataframes, key=len)
+        
+        # Try to convert JSON data to DataFrame if no direct DataFrames available
+        for key, value in data_dict.items():
+            if isinstance(value, list) and len(value) > 0:
+                try:
+                    # Try to create DataFrame from list of dictionaries
+                    df = pd.DataFrame(value)
+                    if not df.empty:
+                        return df
+                except:
+                    pass
+            elif isinstance(value, dict):
+                try:
+                    # Try to create DataFrame from dictionary
+                    df = pd.DataFrame([value])
+                    if not df.empty:
+                        return df
+                except:
+                    pass
         
         return None
