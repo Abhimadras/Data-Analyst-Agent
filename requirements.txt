@@ -1,0 +1,14 @@
+Flask
+gunicorn
+python-dotenv
+pandas
+numpy
+matplotlib
+seaborn
+duckdb
+requests
+beautifulsoup4
+lxml
+html5lib
+Pillow
+pyarrow

@@ -1,0 +1,27 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+
+# Replit fingerprints
+.replit
+.replit.*
+.config/
+.local/
+attached_assets/
+
+# Build & deps
+dist/
+build/
+*.egg-info/
+uv.lock
