@@ -55,48 +55,54 @@ def index():
 def analyze_data():
     """Main API endpoint for data analysis"""
     try:
-        if 'questions.txt' not in request.files:
-            return jsonify({"error": "questions.txt is required"}), 400
+        # Look for any .txt file in the uploaded files
+        questions_file = None
+        for file_key, file_obj in request.files.items():
+            if file_obj and file_obj.filename and file_obj.filename.lower().endswith(".txt"):
+                questions_file = file_obj
+                break
 
-        questions_file = request.files['questions.txt']
+        if not questions_file:
+            return jsonify({"error": "A .txt file containing questions is required"}), 400
+
         if questions_file.filename == '':
-            return jsonify({"error": "questions.txt cannot be empty"}), 400
+            return jsonify({"error": "Questions file cannot be empty"}), 400
 
         # Read questions
         questions_content = questions_file.read().decode('utf-8')
         if not questions_content.strip():
-            return jsonify({"error": "questions.txt cannot be empty"}), 400
+            return jsonify({"error": "Questions file cannot be empty"}), 400
 
         # Create temporary directory for uploaded files
         with tempfile.TemporaryDirectory() as temp_dir:
             uploaded_files = {}
 
-            # Save questions.txt
-            questions_path = os.path.join(temp_dir, 'questions.txt')
+            # Save the questions file (whatever its original name is)
+            q_filename = secure_filename(questions_file.filename)
+            questions_path = os.path.join(temp_dir, q_filename)
             with open(questions_path, 'w', encoding='utf-8') as f:
                 f.write(questions_content)
-            uploaded_files['questions.txt'] = questions_path
+            uploaded_files[q_filename] = questions_path
 
             # Process other uploaded files
             for file_key in request.files:
-                if file_key != 'questions.txt':
-                    file = request.files[file_key]
-                    if file and file.filename and allowed_file(file.filename):
-                        filename = secure_filename(file.filename)
-                        filepath = os.path.join(temp_dir, filename)
-                        file.save(filepath)
+                file = request.files[file_key]
+                if file and file.filename and allowed_file(file.filename):
+                    filename = secure_filename(file.filename)
+                    filepath = os.path.join(temp_dir, filename)
+                    file.save(filepath)
 
-                        # If it's a CSV/JSON, coerce numerics right here
-                        if filename.endswith(".csv"):
-                            df = pd.read_csv(filepath)
-                            df = coerce_numeric_columns(df)
-                            df.to_csv(filepath, index=False)
-                        elif filename.endswith(".json"):
-                            df = pd.read_json(filepath)
-                            df = coerce_numeric_columns(df)
-                            df.to_json(filepath, orient="records")
+                    # If it's a CSV/JSON, coerce numerics right here
+                    if filename.endswith(".csv"):
+                        df = pd.read_csv(filepath)
+                        df = coerce_numeric_columns(df)
+                        df.to_csv(filepath, index=False)
+                    elif filename.endswith(".json"):
+                        df = pd.read_json(filepath)
+                        df = coerce_numeric_columns(df)
+                        df.to_json(filepath, orient="records")
 
-                        uploaded_files[file_key] = filepath
+                    uploaded_files[file_key] = filepath
 
             # Initialize data analyzer
             analyzer = DataAnalyzer()
@@ -118,31 +124,41 @@ def root_post():
 def test_upload():
     """Test endpoint for the web interface"""
     try:
-        if 'questions' not in request.files:
-            flash('questions.txt is required', 'error')
+        # Look for any .txt file in the uploaded files
+        questions_file = None
+        for file_key, file_obj in request.files.items():
+            if file_obj and file_obj.filename and file_obj.filename.lower().endswith(".txt"):
+                questions_file = file_obj
+                break
+
+        if not questions_file:
+            flash('A .txt file containing questions is required', 'error')
             return redirect(url_for('index'))
 
-        questions_file = request.files['questions']
         if questions_file.filename == '':
-            flash('Please select a questions.txt file', 'error')
+            flash('Questions file cannot be empty', 'error')
             return redirect(url_for('index'))
 
         # Read questions
         questions_content = questions_file.read().decode('utf-8')
+        if not questions_content.strip():
+            flash('Questions file cannot be empty', 'error')
+            return redirect(url_for('index'))
 
         # Create temporary directory for uploaded files
         with tempfile.TemporaryDirectory() as temp_dir:
             uploaded_files = {}
 
-            # Save questions.txt
-            questions_path = os.path.join(temp_dir, 'questions.txt')
+            # Save the questions file (whatever its original name is)
+            q_filename = secure_filename(questions_file.filename)
+            questions_path = os.path.join(temp_dir, q_filename)
             with open(questions_path, 'w', encoding='utf-8') as f:
                 f.write(questions_content)
-            uploaded_files['questions.txt'] = questions_path
+            uploaded_files[q_filename] = questions_path
 
             # Process other uploaded files
             for file_key in request.files:
-                if file_key != 'questions':
+                if file_key != questions_file:  # skip the questions file itself
                     file = request.files[file_key]
                     if file and file.filename and allowed_file(file.filename):
                         filename = secure_filename(file.filename)
