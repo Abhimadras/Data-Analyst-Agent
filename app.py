@@ -55,18 +55,15 @@ def index():
 def analyze_data():
     """Main API endpoint for data analysis"""
     try:
-        # Look for any .txt file in request.files
+        # Find the first .txt file in request
         questions_file = None
         for file_key, file in request.files.items():
             if file.filename.lower().endswith(".txt"):
                 questions_file = file
                 break
 
-        if questions_file is None:
-            return jsonify({"error": "At least one .txt file with questions is required"}), 400
-
-        if questions_file.filename == '':
-            return jsonify({"error": "Questions file cannot be empty"}), 400
+        if not questions_file:
+            return jsonify({"error": "A .txt questions file is required"}), 400
 
         # Read questions
         questions_content = questions_file.read().decode('utf-8')
@@ -78,22 +75,19 @@ def analyze_data():
             uploaded_files = {}
 
             # Save the questions file
-            questions_path = os.path.join(temp_dir, questions_file.filename)
+            questions_path = os.path.join(temp_dir, 'questions.txt')
             with open(questions_path, 'w', encoding='utf-8') as f:
                 f.write(questions_content)
-            uploaded_files['questions'] = questions_path
+            uploaded_files['questions.txt'] = questions_path
 
-            # Process other uploaded files (CSV, JSON, etc.)
-            for file_key in request.files:
-                file = request.files[file_key]
-                if file and file.filename and allowed_file(file.filename):
-                    if file.filename == questions_file.filename:
-                        continue  # skip, already handled
+            # Save and process other uploaded files
+            for file_key, file in request.files.items():
+                if file != questions_file and file.filename and allowed_file(file.filename):
                     filename = secure_filename(file.filename)
                     filepath = os.path.join(temp_dir, filename)
                     file.save(filepath)
 
-                    # If it's a CSV/JSON, coerce numerics
+                    # If CSV/JSON → clean numerics
                     if filename.endswith(".csv"):
                         df = pd.read_csv(filepath)
                         df = coerce_numeric_columns(df)
@@ -107,8 +101,6 @@ def analyze_data():
 
             # Initialize data analyzer
             analyzer = DataAnalyzer()
-
-            # Process the analysis request
             result = analyzer.analyze(questions_content, uploaded_files)
 
             return jsonify(result)
