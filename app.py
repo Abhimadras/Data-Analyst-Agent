@@ -55,15 +55,15 @@ def index():
 def analyze_data():
     """Main API endpoint for data analysis"""
     try:
-        # Look for any .txt file in the uploaded files
+        # Look for any .txt file in request.files
         questions_file = None
-        for file_key, file_obj in request.files.items():
-            if file_obj and file_obj.filename and file_obj.filename.lower().endswith(".txt"):
-                questions_file = file_obj
+        for file_key, file in request.files.items():
+            if file.filename.lower().endswith(".txt"):
+                questions_file = file
                 break
 
-        if not questions_file:
-            return jsonify({"error": "A .txt file containing questions is required"}), 400
+        if questions_file is None:
+            return jsonify({"error": "At least one .txt file with questions is required"}), 400
 
         if questions_file.filename == '':
             return jsonify({"error": "Questions file cannot be empty"}), 400
@@ -77,22 +77,23 @@ def analyze_data():
         with tempfile.TemporaryDirectory() as temp_dir:
             uploaded_files = {}
 
-            # Save the questions file (whatever its original name is)
-            q_filename = secure_filename(questions_file.filename)
-            questions_path = os.path.join(temp_dir, q_filename)
+            # Save the questions file
+            questions_path = os.path.join(temp_dir, questions_file.filename)
             with open(questions_path, 'w', encoding='utf-8') as f:
                 f.write(questions_content)
-            uploaded_files[q_filename] = questions_path
+            uploaded_files['questions'] = questions_path
 
-            # Process other uploaded files
+            # Process other uploaded files (CSV, JSON, etc.)
             for file_key in request.files:
                 file = request.files[file_key]
                 if file and file.filename and allowed_file(file.filename):
+                    if file.filename == questions_file.filename:
+                        continue  # skip, already handled
                     filename = secure_filename(file.filename)
                     filepath = os.path.join(temp_dir, filename)
                     file.save(filepath)
 
-                    # If it's a CSV/JSON, coerce numerics right here
+                    # If it's a CSV/JSON, coerce numerics
                     if filename.endswith(".csv"):
                         df = pd.read_csv(filepath)
                         df = coerce_numeric_columns(df)
