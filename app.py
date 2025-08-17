@@ -55,39 +55,39 @@ def index():
 def analyze_data():
     """Main API endpoint for data analysis"""
     try:
-        # Find the first .txt file in request
+        if not request.files:
+            return jsonify({"error": "At least one file is required"}), 400
+
+        # 🔹 Find the first .txt file
         questions_file = None
-        for file_key, file in request.files.items():
-            if file.filename.lower().endswith(".txt"):
+        for _, file in request.files.items():
+            if file and file.filename.lower().endswith(".txt"):
                 questions_file = file
                 break
 
         if not questions_file:
             return jsonify({"error": "A .txt questions file is required"}), 400
 
-        # Read questions
-        questions_content = questions_file.read().decode('utf-8')
-        if not questions_content.strip():
+        questions_content = questions_file.read().decode('utf-8').strip()
+        if not questions_content:
             return jsonify({"error": "Questions file cannot be empty"}), 400
 
-        # Create temporary directory for uploaded files
         with tempfile.TemporaryDirectory() as temp_dir:
             uploaded_files = {}
 
-            # Save the questions file
-            questions_path = os.path.join(temp_dir, 'questions.txt')
-            with open(questions_path, 'w', encoding='utf-8') as f:
+            # 🔹 Always save the questions file as questions.txt (consistent for analyzer)
+            questions_path = os.path.join(temp_dir, "questions.txt")
+            with open(questions_path, "w", encoding="utf-8") as f:
                 f.write(questions_content)
-            uploaded_files['questions.txt'] = questions_path
+            uploaded_files["questions.txt"] = questions_path
 
-            # Save and process other uploaded files
-            for file_key, file in request.files.items():
+            # Process other uploaded files
+            for key, file in request.files.items():
                 if file != questions_file and file.filename and allowed_file(file.filename):
                     filename = secure_filename(file.filename)
                     filepath = os.path.join(temp_dir, filename)
                     file.save(filepath)
 
-                    # If CSV/JSON → clean numerics
                     if filename.endswith(".csv"):
                         df = pd.read_csv(filepath)
                         df = coerce_numeric_columns(df)
@@ -97,16 +97,14 @@ def analyze_data():
                         df = coerce_numeric_columns(df)
                         df.to_json(filepath, orient="records")
 
-                    uploaded_files[file_key] = filepath
+                    uploaded_files[filename] = filepath   # 🔹 use filename, not key
 
-            # Initialize data analyzer
             analyzer = DataAnalyzer()
             result = analyzer.analyze(questions_content, uploaded_files)
-
             return jsonify(result)
 
     except Exception as e:
-        logging.error(f"Error in analyze_data: {str(e)}")
+        logging.error("Error in analyze_data", exc_info=True)
         return jsonify({"error": f"Analysis failed: {str(e)}"}), 500
 
 @app.route('/', methods=['POST'])
@@ -115,76 +113,57 @@ def root_post():
     return analyze_data()
 @app.route('/test', methods=['POST'])
 def test_upload():
-    """Test endpoint for the web interface"""
     try:
-        # Look for any .txt file in the uploaded files
         questions_file = None
-        for file_key, file_obj in request.files.items():
-            if file_obj and file_obj.filename and file_obj.filename.lower().endswith(".txt"):
+        for _, file_obj in request.files.items():
+            if file_obj and file_obj.filename.lower().endswith(".txt"):
                 questions_file = file_obj
                 break
 
         if not questions_file:
-            flash('A .txt file containing questions is required', 'error')
-            return redirect(url_for('index'))
+            flash("A .txt file containing questions is required", "error")
+            return redirect(url_for("index"))
 
-        if questions_file.filename == '':
-            flash('Questions file cannot be empty', 'error')
-            return redirect(url_for('index'))
+        questions_content = questions_file.read().decode("utf-8").strip()
+        if not questions_content:
+            flash("Questions file cannot be empty", "error")
+            return redirect(url_for("index"))
 
-        # Read questions
-        questions_content = questions_file.read().decode('utf-8')
-        if not questions_content.strip():
-            flash('Questions file cannot be empty', 'error')
-            return redirect(url_for('index'))
-
-        # Create temporary directory for uploaded files
         with tempfile.TemporaryDirectory() as temp_dir:
             uploaded_files = {}
 
-            # Save the questions file (whatever its original name is)
-            q_filename = secure_filename(questions_file.filename)
-            questions_path = os.path.join(temp_dir, q_filename)
-            with open(questions_path, 'w', encoding='utf-8') as f:
+            # 🔹 Save as questions.txt (not original name)
+            questions_path = os.path.join(temp_dir, "questions.txt")
+            with open(questions_path, "w", encoding="utf-8") as f:
                 f.write(questions_content)
-            uploaded_files[q_filename] = questions_path
+            uploaded_files["questions.txt"] = questions_path
 
-            # Process other uploaded files
-            for file_key in request.files:
-                if file_key != questions_file:  # skip the questions file itself
-                    file = request.files[file_key]
-                    if file and file.filename and allowed_file(file.filename):
-                        filename = secure_filename(file.filename)
-                        filepath = os.path.join(temp_dir, filename)
-                        file.save(filepath)
+            for _, file in request.files.items():
+                if file != questions_file and file.filename and allowed_file(file.filename):
+                    filename = secure_filename(file.filename)
+                    filepath = os.path.join(temp_dir, filename)
+                    file.save(filepath)
 
-                        # Coerce numeric if CSV/JSON
-                        if filename.endswith(".csv"):
-                            df = pd.read_csv(filepath)
-                            df = coerce_numeric_columns(df)
-                            df.to_csv(filepath, index=False)
-                        elif filename.endswith(".json"):
-                            df = pd.read_json(filepath)
-                            df = coerce_numeric_columns(df)
-                            df.to_json(filepath, orient="records")
+                    if filename.endswith(".csv"):
+                        df = pd.read_csv(filepath)
+                        df = coerce_numeric_columns(df)
+                        df.to_csv(filepath, index=False)
+                    elif filename.endswith(".json"):
+                        df = pd.read_json(filepath)
+                        df = coerce_numeric_columns(df)
+                        df.to_json(filepath, orient="records")
 
-                        uploaded_files[file_key] = filepath
+                    uploaded_files[filename] = filepath
 
-            # Initialize data analyzer
             analyzer = DataAnalyzer()
-
-            # Process the analysis request
             result = analyzer.analyze(questions_content, uploaded_files)
-
-            # Format result for display
             result_json = json.dumps(result, indent=2)
-
-            return render_template('index.html', result=result_json, questions=questions_content)
+            return render_template("index.html", result=result_json, questions=questions_content)
 
     except Exception as e:
-        logging.error(f"Error in test_upload: {str(e)}")
-        flash(f'Analysis failed: {str(e)}', 'error')
-        return redirect(url_for('index'))
+        logging.error("Error in test_upload", exc_info=True)
+        flash(f"Analysis failed: {str(e)}", "error")
+        return redirect(url_for("index"))
 
 
 @app.errorhandler(413)
