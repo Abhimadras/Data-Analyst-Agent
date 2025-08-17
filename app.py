@@ -68,7 +68,13 @@ def analyze_data():
         if not questions_file:
             return jsonify({"error": "A .txt questions file is required"}), 400
 
-        questions_content = questions_file.read().decode('utf-8').strip()
+        # ✅ Safe file reading
+        raw_content = questions_file.read()
+        if isinstance(raw_content, bytes):
+            questions_content = raw_content.decode("utf-8").strip()
+        else:
+            questions_content = raw_content.strip()
+
         if not questions_content:
             return jsonify({"error": "Questions file cannot be empty"}), 400
 
@@ -111,6 +117,7 @@ def analyze_data():
 def root_post():
     # Simply forward POST / to POST /api/
     return analyze_data()
+
 @app.route('/test', methods=['POST'])
 def test_upload():
     try:
@@ -124,7 +131,13 @@ def test_upload():
             flash("A .txt file containing questions is required", "error")
             return redirect(url_for("index"))
 
-        questions_content = questions_file.read().decode("utf-8").strip()
+        # ✅ Safe file reading
+        raw_content = questions_file.read()
+        if isinstance(raw_content, bytes):
+            questions_content = raw_content.decode("utf-8").strip()
+        else:
+            questions_content = raw_content.strip()
+
         if not questions_content:
             flash("Questions file cannot be empty", "error")
             return redirect(url_for("index"))
