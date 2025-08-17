@@ -110,7 +110,10 @@ def analyze_data():
         logging.error(f"Error in analyze_data: {str(e)}")
         return jsonify({"error": f"Analysis failed: {str(e)}"}), 500
 
-
+@app.route('/', methods=['POST'])
+def root_post():
+    # Simply forward POST / to POST /api/
+    return analyze_data()
 @app.route('/test', methods=['POST'])
 def test_upload():
     """Test endpoint for the web interface"""
